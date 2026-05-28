@@ -1,0 +1,23 @@
+# Ignore everything by default; this repo publishes only the automation source and templates.
+/*
+
+!/scripts/
+!/scripts/**
+!/README.md
+!/.gitignore
+!/Todo.md
+!/YT_Todo.md
+!/YT_Schedule.json
+!/Surhs.txt
+
+# Python/runtime artifacts
+__pycache__/
+*.py[cod]
+*.so
+*.o
+*.log
+
+# Local/private credentials
+client_secret.json
+token.json
+Logs.json

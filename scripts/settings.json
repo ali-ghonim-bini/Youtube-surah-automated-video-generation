@@ -1,0 +1,164 @@
+{
+  "surah_dir": "Your Surah Folder",
+  "sound_dir": "Your Sound Folder",
+  "exported_dir": "Your Exported Videos Folder",
+  "live_exported_dir": "Your Live Exported Videos Folder",
+  "surah_file": "Your Surhs.txt Path",
+  "todo_file": "Your Todo.md Path",
+  "log_file": "Your Logs.json Path",
+  "fonts_dir": "Your Fonts Folder",
+  "strict_font_validation": "true or false",
+  "skip_surah_numbers": ["Surah numbers to skip, for example 18"],
+  "process_one_per_run": "true or false",
+  "run_until_todo_empty": "true or false",
+  "generate_mlt": "true or false",
+  "voice_timing_enabled": "true or false",
+  "voice_start_threshold_db": "Voice threshold in dB, for example -25",
+  "voice_timing_search_padding_seconds": "Voice timing search padding seconds",
+  "audio": {
+    "source": "Audio source type, for example qul_ayah_by_ayah",
+    "recitation_id": "QUL recitation id",
+    "recitation_page_url": "QUL recitation page URL",
+    "segments_url_template": "QUL ayah segments API URL template",
+    "expected_sheikh_name": "Expected reciter name",
+    "expected_source_terms": ["Expected source term 1", "Expected source term 2"],
+    "display_name": "Audio source display name",
+    "display_url": "Audio source display URL"
+  },
+  "surahquran": {
+    "display_url": "SurahQuran website URL"
+  },
+  "video": {
+    "background_image": "Your Background Image Path",
+    "font_standard": "Standard font family name",
+    "pango_overlay_fps": "Pango overlay FPS",
+    "pango_sync_offset_seconds": "Pango sync offset seconds",
+    "layout": {
+      "center_x": "Video center X position",
+      "credit_y": "Credit text Y position"
+    },
+    "title": {
+      "center_y": "Title Y position",
+      "size": "Title font size",
+      "color": "Title RGB hex color",
+      "bold": "true or false",
+      "fade_in_seconds": "Title fade-in seconds"
+    },
+    "riwayah": {
+      "center_y": "Riwayah Y position",
+      "size": "Riwayah font size",
+      "color": "Riwayah RGB hex color",
+      "bold": "true or false",
+      "fade_in_seconds": "Riwayah fade-in seconds"
+    },
+    "basmalah": {
+      "arabic_text": "Basmalah Arabic text",
+      "english_text": "Basmalah English text",
+      "fade_in_seconds": "Basmalah fade-in seconds"
+    },
+    "ayah": {
+      "fade_in_seconds": "Ayah fade-in seconds",
+      "fade_out_seconds": "Ayah fade-out seconds"
+    },
+    "ayah_arabic": {
+      "use_pango": "true or false",
+      "family": "Arabic ayah font family",
+      "font": "Pango Arabic ayah font description",
+      "ass_fallback_size": "ASS fallback font size",
+      "color": "Arabic ayah RGB hex color",
+      "center_y": "Arabic ayah Y position",
+      "box_width": "Arabic text box width",
+      "line_spacing": "Arabic line spacing",
+      "line_height": "Arabic line height",
+      "number_gap": "Ayah number gap",
+      "wrap_width": "Arabic wrap width",
+      "number_bidi": "Ayah number bidi mode"
+    },
+    "ayah_english": {
+      "family": "English ayah font family",
+      "size": "English ayah font size",
+      "color": "English ayah RGB hex color",
+      "center_y": "English ayah Y position",
+      "bold": "true or false",
+      "wrap_width": "English wrap width"
+    },
+    "intro": {
+      "duration_seconds": "Intro duration seconds",
+      "arabic_text": "Intro Arabic credit text",
+      "english_text": "Intro English credit text and links",
+      "arabic_font": "Intro Arabic Pango font description",
+      "arabic_color": "Intro Arabic RGB hex color",
+      "arabic_y": "Intro Arabic Y position",
+      "arabic_box_width": "Intro Arabic box width",
+      "english_size": "Intro English font size",
+      "english_color": "Intro English RGB hex color",
+      "english_bold": "true or false",
+      "fade_in_seconds": "Intro fade-in seconds",
+      "fade_out_seconds": "Intro fade-out seconds"
+    },
+    "outro": {
+      "duration_seconds": "Outro duration seconds",
+      "arabic_text": "Outro Arabic text",
+      "english_text": "Outro English text",
+      "arabic_font": "Outro Arabic Pango font description",
+      "arabic_color": "Outro Arabic RGB hex color",
+      "arabic_y": "Outro Arabic Y position",
+      "arabic_box_width": "Outro Arabic box width",
+      "english_size": "Outro English font size",
+      "english_color": "Outro English RGB hex color",
+      "english_bold": "true or false",
+      "fade_in_seconds": "Outro fade-in seconds",
+      "fade_out_seconds": "Outro fade-out seconds"
+    }
+  },
+  "thumbnail": {
+    "output_dir": "Your Thumbnail Output Folder",
+    "use_gradient": "true or false",
+    "gradient_type": "Thumbnail gradient type",
+    "gradient_shape": "Thumbnail gradient shape",
+    "gradient_position": "Thumbnail gradient position",
+    "gradient_stops": [
+      {"offset": "Gradient stop offset", "color": "Gradient stop RGB hex color"},
+      {"offset": "Gradient stop offset", "color": "Gradient stop RGB hex color"},
+      {"offset": "Gradient stop offset", "color": "Gradient stop RGB hex color"}
+    ],
+    "background_color": "Thumbnail background RGB hex color",
+    "arabic_font": "Thumbnail Arabic Pango font description",
+    "english_font": "Thumbnail English Pango font description",
+    "font_color": "Thumbnail text RGB hex color",
+    "font_alpha": "Thumbnail font alpha",
+    "arabic_y": "Thumbnail Arabic Y position",
+    "english_y": "Thumbnail English Y position",
+    "text_box_width": "Thumbnail text box width"
+  },
+  "youtube": {
+    "todo_file": "Your YT_Todo.md Path",
+    "client_secret_file": "Your OAuth Client Secret JSON Path",
+    "token_file": "Your Youtube Channel Token",
+    "schedule_file": "Your YT_Schedule.json Path",
+    "privacy_status": "private, public, or unlisted",
+    "publish_time": "HH:MM local publish time",
+    "gmt_offset_hours": "GMT offset hours",
+    "publish_days_after_video_done": "Days after video generation for first schedule",
+    "publish_between_scheduled_days": "Days between scheduled uploads",
+    "playlist_url": "Playlist Url",
+    "playlist_id": "Playlist Id",
+    "title_format": "YouTube title format using metadata variables",
+    "description_format": "YouTube description format using metadata variables",
+    "intro_lines": ["Intro/thanks line 1", "Intro/thanks line 2", "Intro/thanks link line"],
+    "sheikh_arabic": "Arabic reciter full name",
+    "sheikh_english": "English reciter full name",
+    "sheikh_arabic_title": "Arabic reciter short title name",
+    "sheikh_english_title": "English reciter short title name",
+    "sheikh_hashtag": "Reciter hashtag",
+    "riwayah_arabic": "Arabic riwayah full name",
+    "riwayah_english": "English riwayah full name",
+    "riwayah_arabic_title": "Arabic riwayah title name",
+    "riwayah_english_title": "English riwayah title name",
+    "riwayah_hashtag": "Riwayah hashtag",
+    "riwayah_full_hashtag": "Full riwayah hashtag",
+    "category_id": "YouTube category id",
+    "made_for_kids": "true or false",
+    "tags": ["YouTube tag 1", "YouTube tag 2"]
+  }
+}
