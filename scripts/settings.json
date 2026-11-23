@@ -140,6 +140,10 @@
       "english_bold": true,
       "fade_in_seconds": 0.32,
       "fade_out_seconds": 0.0
+    },
+    "quality_check": {
+      "text_top_faint_px": 60,
+      "sync_min_measured_share": 0.1
     }
   },
   "thumbnail": {

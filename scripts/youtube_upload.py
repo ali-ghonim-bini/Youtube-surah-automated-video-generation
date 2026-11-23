@@ -1233,7 +1233,8 @@ def upload_one(youtube, MediaFileUpload, number: int, arabic_name: str) -> str:
     video_id = response["id"]
     log("VIDEO_UPLOAD_OK", surah=number, video_id=video_id, url=f"https://www.youtube.com/watch?v={video_id}")
     try:
-        youtube.thumbnails().set(videoId=video_id, media_body=MediaFileUpload(str(thumbnail_file))).execute(num_retries=API_RETRIES)
+        when_video_is_known(lambda: youtube.thumbnails().set(videoId=video_id, media_body=MediaFileUpload(str(thumbnail_file))).execute(num_retries=API_RETRIES),
+                            number, "thumbnail")
         log("THUMBNAIL_SET_OK", surah=number, video_id=video_id, thumbnail=thumbnail_file)
         add_to_playlist(youtube, video_id, number)
         if CAPTIONS_UPLOAD_ON_NEW_VIDEOS:
@@ -1252,13 +1253,34 @@ def upload_one(youtube, MediaFileUpload, number: int, arabic_name: str) -> str:
     return video_id
 
 
+VIDEO_NOT_READY_WAITS = (3, 5, 5, 10, 10)   # seconds between tries, about half a minute in all
+
+
+def when_video_is_known(action, number: int, step: str, sleep=None):
+    """Run a step that needs the just-uploaded video (thumbnail, playlist). For a few seconds after an upload
+    YouTube can answer "video not found"; wait and try again before giving up. Any other error is raised at once."""
+    import time as time_module
+    sleep = sleep or time_module.sleep
+    for attempt, wait in enumerate((*VIDEO_NOT_READY_WAITS, None), start=1):
+        try:
+            return action()
+        except Exception as exc:
+            details = youtube_error_details(exc)
+            text = str(details.get("api_message") or details.get("message") or "").lower()
+            not_known_yet = details.get("api_reason") == "videoNotFound" or (str(details.get("http_status")) == "404" and "video not found" in text)
+            if wait is None or not not_known_yet:
+                raise
+            log("VIDEO_NOT_READY_RETRY", level="WARNING", surah=number, step=step, attempt=attempt, wait_seconds=wait, message=short_error(exc))
+            sleep(wait)
+
+
 def add_to_playlist(youtube, video_id: str, number: int) -> None:
     playlist_id = str(YOUTUBE.get("playlist_id", "")).strip()
     if not playlist_id:
         return
     log("PLAYLIST_ADD_START", surah=number, video_id=video_id, playlist_id=playlist_id)
     try:
-        youtube.playlistItems().insert(
+        when_video_is_known(lambda: youtube.playlistItems().insert(
             part="snippet",
             body={
                 "snippet": {
@@ -1266,7 +1288,7 @@ def add_to_playlist(youtube, video_id: str, number: int) -> None:
                     "resourceId": {"kind": "youtube#video", "videoId": video_id},
                 }
             },
-        ).execute(num_retries=API_RETRIES)
+        ).execute(num_retries=API_RETRIES), number, "playlist")
     except Exception as exc:
         log("PLAYLIST_ADD_ERROR", level="ERROR", surah=number, video_id=video_id, playlist_id=playlist_id, **youtube_error_details(exc))
         raise

@@ -176,6 +176,14 @@ class QualityCheckError(RuntimeError):
     pass
 
 
+def enough_measured(measured: int, total: int) -> bool:
+    """Could the start of enough ayat be measured to trust the sync check? A start can only be measured when there
+    is a pause before it, so a recitation that runs ayat together leaves few to measure. The joined audio is already
+    guaranteed to be exactly as long as planned (pipeline_audio.join_clips), so a small share is enough; a few
+    measured ayat are still required (3, or 30% of a very short surah)."""
+    return measured >= max(QUALITY_SYNC_MIN_MEASURED_SHARE * total, min(3, 0.3 * total))
+
+
 def voice_onsets(video: Path) -> list[float]:
     """Moments the recitation starts again after a pause, measured in the finished video's own audio."""
     result = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(video), "-vn",
@@ -271,7 +279,7 @@ def quality_check(number: int, video: Path, surah_layout: "text_layout.SurahLayo
             worst = sorted(bad.items(), key=lambda kv: -abs(kv[1]))[:5]
             problems.append(f"audio sync: {len(bad)} ayat off by more than {QUALITY_SYNC_MAX_OFFSET}s, e.g. "
                             + ", ".join(f"ayah {k} {v:+.2f}s" for k, v in worst))
-    if len(offsets) < 0.3 * (len(offsets) + len(unverified)):
+    if not enough_measured(len(offsets), len(offsets) + len(unverified)):
         problems.append(f"audio sync: could only measure {len(offsets)} of {len(offsets) + len(unverified)} ayat")
 
     report = {"ayat": ayah_count, "screens": len(ordered), "sync": sync, "problems": problems[:20],

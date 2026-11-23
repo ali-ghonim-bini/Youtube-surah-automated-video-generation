@@ -341,6 +341,7 @@ QUALITY_TOP_FAINT_PX = setting_int("video.quality_check.text_top_faint_px", 40)
 QUALITY_SYNC_MAX_OFFSET = setting_float("video.quality_check.sync_max_offset_seconds", 0.5)
 QUALITY_SYNC_MAX_MEDIAN = setting_float("video.quality_check.sync_max_median_seconds", 0.3)
 QUALITY_SYNC_MAX_BAD_SHARE = setting_float("video.quality_check.sync_max_bad_share", 0.1)
+QUALITY_SYNC_MIN_MEASURED_SHARE = setting_float("video.quality_check.sync_min_measured_share", 0.3)   # share of ayat whose start must be measurable (a pause before it)
 QUALITY_MIN_SCREEN_SECONDS = 1.0
 LAYOUT_OVERRIDES_FILE = SURAH_DIR / "Layout_Overrides.json"
 LAYOUT_SPLIT_BELOW_SCALE = setting_float("video.layout.split_below_scale", 0.85)
