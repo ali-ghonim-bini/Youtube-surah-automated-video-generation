@@ -15,10 +15,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import todo_file
-import series
+import settings_path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-SETTINGS_FILE = series.settings_file()
+SETTINGS_FILE = settings_path.settings_file()
 SERVICES = ("surah-todo-watcher", "surah-yt-watcher")
 LOGIN_VALID_DAYS = 7
 

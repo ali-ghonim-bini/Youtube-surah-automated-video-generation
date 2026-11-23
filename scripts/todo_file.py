@@ -111,8 +111,8 @@ def format_queue(entries: dict[int, tuple[str, str | None, str | None]]) -> str:
 
 def _load_settings() -> dict:
     try:
-        import series
-        data = json.loads(series.settings_file().read_text(encoding="utf-8"))
+        import settings_path
+        data = json.loads(settings_path.settings_file().read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
         return {}

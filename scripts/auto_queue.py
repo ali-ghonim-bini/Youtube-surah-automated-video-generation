@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Callable
 
 import todo_file
-from notify import with_series
+from notify import icon_args
 
 BLOCKING = {"ERROR"}  # don't feed the pipeline while something is broken
 
@@ -152,8 +152,8 @@ class AutoQueue:
         title, body, yes_label, no_label = QUESTIONS[kind]
         body = body.format(number=number, name=name, video=video) + f"\n(You can also answer in {self.decisions_path.name})"
         self.asking = subprocess.Popen(
-            ["notify-send", "-a", "Surah channel", "-u", "critical", "-A", f"yes={yes_label}", "-A", f"no={no_label}",
-             with_series(title.format(number=number)), body],
+            ["notify-send", "-a", "Surah channel", "-u", "critical", *icon_args(), "-A", f"yes={yes_label}", "-A", f"no={no_label}",
+             title.format(number=number), body],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         self.asking_key = key
         self.log("AUTO_QUEUE_ASK", surah=number, question=kind)

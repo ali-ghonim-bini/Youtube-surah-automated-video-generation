@@ -44,13 +44,15 @@ def verify_mp4(number: int, mp4: Path) -> None:
 
 
 def uploaded_surahs() -> set[int]:
-    """Surahs that have a video on YouTube, from YT_Schedule.json."""
+    """Surahs of this reciter that have a video on YouTube, from YT_Schedule.json."""
     schedule = Path(str(setting_value("youtube.schedule_file") or SURAH_DIR / "YT_Schedule.json"))
     try:
         videos = json.loads(schedule.read_text(encoding="utf-8")).get("videos", [])
     except (OSError, ValueError, AttributeError):
         return set()
-    return {int(video["surah"]) for video in videos if isinstance(video, dict) and video.get("video_id") and isinstance(video.get("surah"), int)}
+    reciter = str(setting_value("youtube.sheikh_english") or "").strip()   # the schedule is shared by every reciter; only his entries count
+    return {int(video["surah"]) for video in videos if isinstance(video, dict) and video.get("video_id") and isinstance(video.get("surah"), int)
+            and str(video.get("reciter", reciter)) == reciter}
 
 
 def queue_for_upload(number: int, arabic_name: str) -> None:

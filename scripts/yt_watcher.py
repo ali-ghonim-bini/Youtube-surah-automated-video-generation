@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import series
+import settings_path
 from keep_awake import run_awake
 from notify import notify
 import status as pipeline_status
@@ -19,7 +19,7 @@ from shared_log import append_event
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-SETTINGS_FILE = series.settings_file()  # SURAH_SETTINGS: tests / smoke runs
+SETTINGS_FILE = settings_path.settings_file()  # SURAH_SETTINGS: tests / smoke runs
 UPLOAD_SCRIPT = SCRIPT_DIR / "youtube_upload.py"
 DEFAULT_TODO_FILE = Path("/path/to/Channel/سور/YT_Todo.md")
 DEFAULT_LOG_FILE = Path("/path/to/Channel/سور/Logs.json")

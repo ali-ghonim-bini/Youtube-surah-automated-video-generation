@@ -4,9 +4,10 @@ settings.json:
   "notifications": {
     "desktop": true,
     "ntfy_url": "",          # e.g. "https://ntfy.sh/<your-private-topic>"; empty = off
-    "dedupe_hours": 6        # same `key` is not re-sent within this window
+    "dedupe_hours": 6,       # same `key` is not re-sent within this window
+    "icon_dark_mode": "",    # picture shown on notifications while the desktop is in dark mode (a light drawing)
+    "icon_light_mode": ""    # ... and while it is in light mode (a dark drawing); empty or missing file = no icon
   }
-  "series_name": "Alafasy"   # optional; put in front of every notification title, so two series are never confused
 """
 from __future__ import annotations
 
@@ -18,10 +19,10 @@ import subprocess
 import time
 import urllib.request
 from pathlib import Path
-import series
+import settings_path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-SETTINGS_FILE = series.settings_file()  # SURAH_SETTINGS: tests / smoke runs
+SETTINGS_FILE = settings_path.settings_file()  # SURAH_SETTINGS: tests / smoke runs
 
 
 def _settings() -> tuple[dict[str, object], Path]:
@@ -34,13 +35,25 @@ def _settings() -> tuple[dict[str, object], Path]:
     return config, log_file.with_name(".notify_state.json")
 
 
-def with_series(title: str) -> str:
-    """The title with the series name in front, e.g. "[Alafasy] Uploaded surah 5" (unchanged when no name is set)."""
+def desktop_is_dark() -> bool:
+    """Is the desktop in dark mode right now? Asked every time, so switching modes is followed at once.
+    When it cannot be told (not GNOME, no session), dark is assumed."""
     try:
-        name = str(json.loads(SETTINGS_FILE.read_text(encoding="utf-8")).get("series_name") or "").strip()
-    except (OSError, json.JSONDecodeError, AttributeError):
-        name = ""
-    return f"[{name}] {title}" if name else title
+        answer = subprocess.run(["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
+                                capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return True
+    if answer.returncode != 0:
+        return True
+    return "dark" in answer.stdout.lower()
+
+
+def icon_args(config: dict[str, object] | None = None) -> list[str]:
+    """notify-send arguments for the icon that suits the desktop's light or dark mode ([] when there is none)."""
+    if config is None:
+        config, _state = _settings()
+    path = str(config.get("icon_dark_mode" if desktop_is_dark() else "icon_light_mode") or "").strip()
+    return ["-i", path] if path and Path(path).is_file() else []
 
 
 def _seen_recently(state_file: Path, key: str, window_seconds: float) -> bool:
@@ -71,12 +84,11 @@ def notify(title: str, message: str, level: str = "info", key: str | None = None
     """
     try:
         config, state_file = _settings()
-        title = with_series(title)
         if key and _seen_recently(state_file, key, float(config.get("dedupe_hours", 6)) * 3600):
             return
         if config.get("desktop", True) and shutil.which("notify-send"):
             urgency = {"error": "critical", "warning": "normal"}.get(level, "low")
-            subprocess.run(["notify-send", "-a", "Surah channel", "-u", urgency, title, message], timeout=10, check=False, capture_output=True)
+            subprocess.run(["notify-send", "-a", "Surah channel", "-u", urgency, *icon_args(config), title, message], timeout=10, check=False, capture_output=True)
         ntfy_url = str(config.get("ntfy_url") or "").strip()
         if ntfy_url.startswith("https://"):
             priority = {"error": "high", "warning": "default"}.get(level, "low")

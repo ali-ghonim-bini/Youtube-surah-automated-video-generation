@@ -17,13 +17,13 @@ from auto_queue import find_existing_video
 from notify import notify
 from shared_log import append_event
 import cleanup
-import series
+import settings_path
 import preflight
 import todo_file
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-SETTINGS_FILE = series.settings_file()  # SURAH_SETTINGS: tests / smoke runs
+SETTINGS_FILE = settings_path.settings_file()  # SURAH_SETTINGS: tests / smoke runs
 SCOPES = ["https://www.googleapis.com/auth/youtube", "https://www.googleapis.com/auth/youtube.force-ssl"]
 ENGLISH_NAMES = {
     1: "Al-Fatihah", 2: "Al-Baqarah", 3: "Ali 'Imran", 4: "An-Nisa", 5: "Al-Ma'idah", 6: "Al-An'am",
@@ -73,6 +73,14 @@ TOKEN_FILE = Path(str(YOUTUBE.get("token_file", "/path/to/Channel/auth_certifica
 # before a Testing-mode login runs out (Google ends those 7 days after the browser login).
 TOKEN_META_FILE = TOKEN_FILE.with_name("token_meta.json")
 SCHEDULE_FILE = Path(str(YOUTUBE.get("schedule_file", SURAH_DIR / "YT_Schedule.json")))
+# One schedule file is shared by every reciter you ever upload. Each entry is marked with its reciter, so the same
+# surah number under two reciters never gets mixed up; publish dates continue from the latest date in the whole file.
+RECITER = str(YOUTUBE.get("sheikh_english") or "").strip()
+
+
+def mine(video: object) -> bool:
+    """Is this schedule entry a video of the reciter in settings.json? (Entries from before the mark existed count as his.)"""
+    return isinstance(video, dict) and str(video.get("reciter", RECITER)) == RECITER
 CAPTIONS = SETTINGS.get("captions", {}) if isinstance(SETTINGS.get("captions"), dict) else {}
 CAPTIONS_ENABLED = bool(CAPTIONS.get("enabled", True))
 CAPTIONS_OUTPUT_DIR = Path(str(CAPTIONS.get("output_dir", SURAH_DIR / "Captions")))
@@ -93,7 +101,7 @@ UPLOAD_RETRY_WAITS = (5, 15, 30, 60, 60, 120, 120, 300)   # seconds between trie
 CLEANUP = SETTINGS.get("cleanup", {}) if isinstance(SETTINGS.get("cleanup"), dict) else {}
 CLEANUP_ENABLED = bool(CLEANUP.get("delete_local_after_upload", False))   # remove a surah's local files once YouTube has confirmed its video
 CLEANUP_DURATION_TOLERANCE_SECONDS = float(CLEANUP.get("duration_tolerance_seconds", 2))
-SURAH_TEMP_DIR = series.temp_dir()   # where the pipeline keeps a surah's temporary subtitle/overlay files
+SURAH_TEMP_DIR = settings_path.temp_dir()   # where the pipeline keeps a surah's temporary subtitle/overlay files
 UPLOAD_SESSION_FILE = SURAH_DIR / ".upload_session.json"   # where an unfinished upload can be picked up after a restart
 UPLOAD_SESSION_MAX_AGE_HOURS = 144                        # YouTube keeps an unfinished upload for about a week
 # Exit codes understood by yt_watcher.py
@@ -670,27 +678,10 @@ def save_credentials(creds) -> None:
     TOKEN_FILE.chmod(0o600)
 
 
-def latest_of_series_to_follow() -> str | None:
-    """With "publish_after_schedule_file" set to another series' YT_Schedule.json: that series' last publish date,
-    so this series starts the day after it ends. The file is read every time, so a re-scheduled date is followed.
-    A file that is set but cannot be read stops the upload: publishing too early cannot be taken back."""
-    path = str(YOUTUBE.get("publish_after_schedule_file") or "").strip()
-    if not path:
-        return None
-    try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-        values = [str(video["publish_at"]) for video in data.get("videos", []) if isinstance(video, dict) and video.get("publish_at")]
-        if data.get("latest_publish_at"):
-            values.append(str(data["latest_publish_at"]))
-        return max(values, key=parse_utc_datetime) if values else None
-    except (OSError, ValueError, AttributeError, TypeError) as exc:
-        raise RuntimeError(f"Cannot read the schedule this series must follow ({path}): {exc}") from exc
-
-
 def publish_at(video_file: Path) -> str:
-    dates = [value for value in (latest_scheduled_publish_at(), latest_of_series_to_follow()) if value]
-    if dates:
-        return next_spaced_publish_at(max(dates, key=parse_utc_datetime))
+    latest_publish = latest_scheduled_publish_at()   # the latest date in the whole schedule, whichever reciter it belongs to
+    if latest_publish is not None:
+        return next_spaced_publish_at(latest_publish)
     return tomorrow_publish_at()
 
 
@@ -759,8 +750,12 @@ def latest_from_schedule_file() -> str | None:
         data = json.loads(SCHEDULE_FILE.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return None
-    value = data.get("latest_publish_at") if isinstance(data, dict) else None
-    return str(value) if value else None
+    if not isinstance(data, dict):
+        return None
+    dates = [str(video["publish_at"]) for video in data.get("videos") or [] if isinstance(video, dict) and video.get("publish_at")]
+    if data.get("latest_publish_at"):
+        dates.append(str(data["latest_publish_at"]))
+    return max(dates, key=parse_utc_datetime) if dates else None
 
 
 def latest_from_logs() -> str | None:
@@ -787,10 +782,10 @@ def latest_from_logs() -> str | None:
 
 
 def save_schedule(data: dict[str, object]) -> None:
-    """Write YT_Schedule.json with videos sorted by surah, highest first (same order as publishing)."""
+    """Write YT_Schedule.json with the videos in publishing order (earliest date first)."""
     videos = data.get("videos")
     if isinstance(videos, list):
-        data["videos"] = sorted(videos, key=lambda video: -int(video.get("surah", 0)) if isinstance(video, dict) else 0)
+        data["videos"] = sorted(videos, key=lambda video: str(video.get("publish_at") or "") if isinstance(video, dict) else "")
     SCHEDULE_FILE.parent.mkdir(parents=True, exist_ok=True)
     SCHEDULE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -807,10 +802,11 @@ def record_schedule(number: int, video_id: str, publish_at_value: str) -> None:
     videos = data.get("videos")
     if not isinstance(videos, list):
         videos = []
-    videos = [video for video in videos if not (isinstance(video, dict) and (video.get("surah") == number or video.get("video_id") == video_id))]
-    record = {"surah": number, "video_id": video_id, "publish_at": publish_at_value, "recorded_at": datetime.now().isoformat(timespec="seconds")}
+    # replace this reciter's earlier entry for the surah; another reciter's entry for the same surah stays
+    videos = [video for video in videos if not (isinstance(video, dict) and ((mine(video) and video.get("surah") == number) or video.get("video_id") == video_id))]
+    record = {"surah": number, "video_id": video_id, "publish_at": publish_at_value, "recorded_at": datetime.now().isoformat(timespec="seconds"), "reciter": RECITER}
     videos.insert(0, record)
-    data["videos"] = videos[:500]
+    data["videos"] = videos
     publish_values = [str(video.get("publish_at")) for video in videos if isinstance(video, dict) and video.get("publish_at")]
     data["latest_publish_at"] = max(publish_values, key=parse_utc_datetime) if publish_values else publish_at_value
     SCHEDULE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -847,8 +843,8 @@ def cleanup_candidates() -> list[tuple[int, str, list[Path]]]:
     folders = {"exported_dir": EXPORTED_DIR, "live_dir": LIVE_EXPORTED_DIR, "sound_dir": SOUND_DIR, "thumbnail_dir": THUMBNAIL_DIR, "captions_dir": CAPTIONS_OUTPUT_DIR}
     candidates: list[tuple[int, str, list[Path]]] = []
     for video in videos:
-        if not (isinstance(video, dict) and video.get("video_id") and isinstance(video.get("surah"), int)):
-            continue
+        if not (mine(video) and video.get("video_id") and isinstance(video.get("surah"), int)):
+            continue   # another reciter's video, or not a complete entry
         number = video["surah"]
         if upload_status.get(number) != "DONE" or video_status.get(number) != "DONE" or number not in surahs:
             continue   # still being made or uploaded (or being made again): its files are needed
@@ -910,7 +906,8 @@ def sync_deleted_videos(youtube, just_uploaded: str | None = None) -> list[int]:
     videos = data.get("videos") if isinstance(data, dict) else None
     if not isinstance(videos, list):
         return []
-    entries = [video for video in videos if isinstance(video, dict) and video.get("video_id") and isinstance(video.get("surah"), int)]
+    # only this reciter's videos: the queue belongs to him, so another reciter's deleted video must not requeue anything
+    entries = [video for video in videos if mine(video) and video.get("video_id") and isinstance(video.get("surah"), int)]
     if not entries:
         return []
     existing: set[str] = set()
@@ -966,9 +963,9 @@ def reorder_schedule(youtube, just_uploaded: str | None = None) -> int:
     if not isinstance(videos, list):
         return 0
     cutoff = datetime.now(timezone.utc) + timedelta(hours=1)  # never touch a video that is about to go public
-    future = [
+    future = [   # this reciter's videos only: another reciter's dates are never moved or handed out
         video for video in videos
-        if isinstance(video, dict) and isinstance(video.get("surah"), int) and video.get("video_id")
+        if mine(video) and isinstance(video.get("surah"), int) and video.get("video_id")
         and isinstance(video.get("publish_at"), str) and parse_utc_datetime(video["publish_at"]) > cutoff
     ]
     if not future:
@@ -1006,12 +1003,14 @@ def reorder_schedule(youtube, just_uploaded: str | None = None) -> int:
         log("PUBLISH_RESCHEDULED", surah=video["surah"], video_id=video["video_id"], old_publish_at=old, publish_at=slot)
         moved += 1
     if moved:
-        data["latest_publish_at"] = max(slots, key=parse_utc_datetime)
+        every = [str(video["publish_at"]) for video in data["videos"] if isinstance(video, dict) and video.get("publish_at")]
+        data["latest_publish_at"] = max(every, key=parse_utc_datetime)
         save_schedule(data)
     return moved
 
 
 def schedule_by_surah() -> dict[int, str]:
+    """{surah: publish date} of this reciter's uploaded videos."""
     if not SCHEDULE_FILE.exists() or SCHEDULE_FILE.stat().st_size == 0:
         return {}
     try:
@@ -1023,7 +1022,7 @@ def schedule_by_surah() -> dict[int, str]:
         return {}
     schedule: dict[int, str] = {}
     for video in videos:
-        if not isinstance(video, dict):
+        if not mine(video):
             continue
         number = video.get("surah")
         publish_value = video.get("publish_at")

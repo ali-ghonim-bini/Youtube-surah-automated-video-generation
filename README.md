@@ -141,31 +141,19 @@ To check that the settings are read correctly, without rendering or uploading an
 python3 scripts/status.py
 ```
 
-### The next series
+### Changing the reciter
 
-The two services work on **one series at a time**. A series is one set of videos: a reciter, a look, a playlist, and its own queue, audio, videos and log, all described by one `settings.json`. When a series is finished you create the next one and switch to it; the finished one is never worked on again, also after the computer restarts.
+There is one settings file and one set of folders. The services work on whatever `scripts/settings.json` describes. When every surah of one reciter is uploaded and you want to start the next reciter:
 
-```bash
-python3 scripts/series.py new warsh      # creates series/warsh/ ; starts nothing
-python3 scripts/series.py use warsh      # the services now work on warsh only
-python3 scripts/series.py which          # shows the active series
-python3 scripts/series.py use main       # back to scripts/settings.json
-```
+1. Stop the two services.
+2. In the data folder, delete or rename `Queue.md`. A new, empty queue is created at the next start, so the new reciter begins with the first surah.
+3. Empty the `Sound` folder, so no audio of the old reciter is reused.
+4. In `scripts/settings.json` change the recitation (`audio.*`), the reciter names, title and description templates and tags under `youtube`, the playlist, and the look (background, colours, thumbnail) if you want a different one.
+5. Start the services.
 
-- `new` creates `series/warsh/` with its own `settings.json` (every working path inside that folder, the playlist left empty) and copies of `Surhs.txt` and `Caption_Languages.json`. It lists the settings to edit first: the recitation (`audio.*`), the playlist, the title and description templates, the tags and the background. `surahquran.page_url_template` chooses the text and translation page. The YouTube login is shared.
-- `use` records the choice in `scripts/active_series.json` and restarts the two services. They read that file at every start, so the choice survives a restart of the computer. While the file does not exist, the active series is `scripts/settings.json`. `use` refuses while the current series is in the middle of a render or an upload (`--force` stops it and switches anyway).
-- The new series has its own empty queue, so it starts from the first surah.
+**`YT_Schedule.json` stays the same file for every reciter.** Each entry is marked with its reciter (`youtube.sheikh_english` at the time of the upload), so the same surah number under two reciters is never confused: an old reciter's surah 2 does not count as "already uploaded" for the new one, and his publish dates are never moved. The next video is always scheduled for the day after the latest date in the whole file, so a new reciter starts the day after the previous one ends. Because the mark is `youtube.sheikh_english`, change that setting only when you change the reciter.
 
-Two settings help when one series follows another:
-
-- `"series_name"` is put in front of every notification title, for example `[Alafasy] Uploaded surah 5`.
-- `"youtube.publish_after_schedule_file"` names the previous series' `YT_Schedule.json`. The first video of the new series is then scheduled for the day after the previous series' last video, and the rest follow one per day. The file is read at every upload, so a changed date is followed; if it is set but cannot be read, the upload stops with an error rather than publishing early.
-
-To look at a series without making it active, point a single command at it:
-
-```bash
-SURAH_SETTINGS=series/warsh/settings.json python3 scripts/status.py
-```
+To run a single command against a different settings file without touching the real one, set the `SURAH_SETTINGS` environment variable.
 
 ### YouTube credentials (not in the repo)
 
@@ -247,7 +235,7 @@ scripts/
   youtube_upload.py       YouTube upload, thumbnail, playlist, scheduling
   preflight.py            checks before an upload
   cleanup.py              check an uploaded video on YouTube; remove a surah's local files
-  series.py               create the next series; choose which one the services work on
+  settings_path.py        which settings file is used; temporary folder
   todo_watcher.py         service: runs generation when Queue.md has work in TODO
   yt_watcher.py           service: runs uploads; login reminder, daily summary
   auto_queue.py           keeps the generation queue fed; ignored-surah questions

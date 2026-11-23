@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from auto_queue import AutoQueue
-import series
+import settings_path
 from keep_awake import run_awake
 from notify import notify
 import todo_file as todo_file_module
@@ -19,7 +19,7 @@ from shared_log import append_event
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-SETTINGS_FILE = series.settings_file()  # SURAH_SETTINGS: tests / smoke runs
+SETTINGS_FILE = settings_path.settings_file()  # SURAH_SETTINGS: tests / smoke runs
 AUTOMATION_SCRIPT = SCRIPT_DIR / "surah_automation.py"
 DEFAULT_TODO_FILE = Path("/path/to/Channel/سور/Todo.md")
 DEFAULT_LOG_FILE = Path("/path/to/Channel/سور/Logs.json")

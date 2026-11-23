@@ -107,6 +107,30 @@ def fetch_audio_segments(number: int, ayah_count: int) -> dict[str, object]:
         from_ayah = missing[0]
 
 
+JOINED_LENGTH_TOLERANCE_SECONDS = 0.1
+
+
+def join_clips(clips: list[Path], out: Path, list_file: Path) -> float:
+    """Join the ayah clips into one audio file whose length is exactly the sum of the clips.
+
+    The clips are decoded and the joined audio is encoded once. Copying MP3 clips together as they are keeps
+    each clip's encoder padding (about 0.05 s with some reciters), which is not part of the clip's measured
+    length; the on-screen times are planned from the measured lengths, so the voice would fall a little further
+    behind the text with every ayah. The result is checked: a joined file that is not as long as planned stops
+    the surah instead of producing a video that drifts."""
+    list_file.parent.mkdir(parents=True, exist_ok=True)
+    list_file.write_text("".join(f"file '{path.as_posix()}'\n" for path in clips), encoding="utf-8")
+    cmd = ["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(list_file), "-vn", "-c:a", "libmp3lame", "-b:a", "192k", str(out)]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr[-4000:])
+    planned = sum(ffprobe_duration(path) for path in clips)
+    actual = ffprobe_duration(out)
+    if abs(actual - planned) > JOINED_LENGTH_TOLERANCE_SECONDS:
+        raise RuntimeError(f"Joined audio is {actual:.3f}s but the clips add up to {planned:.3f}s: the ayat would drift out of sync")
+    return actual
+
+
 def prepare_qul_audio(number: int, ayah_count: int) -> tuple[Path, tuple[float, float] | None, list[tuple[float, float]]]:
     segments = fetch_audio_segments(number, ayah_count)
 
@@ -142,14 +166,8 @@ def prepare_qul_audio(number: int, ayah_count: int) -> tuple[Path, tuple[float, 
         if isinstance(rows, list):
             WORD_SEGMENTS[(number, ayah_number)] = [row for row in rows if isinstance(row, list) and len(row) >= 4]
 
-    list_file = TEMP_DIR / f"{number}_concat.txt"
-    list_file.parent.mkdir(parents=True, exist_ok=True)
-    list_file.write_text("".join(f"file '{path.as_posix()}'\n" for path in ayah_files), encoding="utf-8")
-    cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_file), "-c", "copy", str(combined)]
     log("AUDIO_COMBINE_START", surah=number, output=combined, ayah_files=len(ayah_files))
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr[-4000:])
+    join_clips(ayah_files, combined, TEMP_DIR / f"{number}_concat.txt")
 
     cursor = INTRO_CREDIT_SECONDS
     ayah_timings: list[tuple[float, float]] = []

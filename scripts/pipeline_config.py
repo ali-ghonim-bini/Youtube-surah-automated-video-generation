@@ -26,12 +26,12 @@ from notify import notify
 from shared_log import append_event, json_safe
 import layout as text_layout
 import todo_file
-import series
+import settings_path
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-TEMP_DIR = series.temp_dir()   # temporary per-surah files; one folder per series
-SETTINGS_FILE = series.settings_file()  # SURAH_SETTINGS: tests / smoke runs
+TEMP_DIR = settings_path.temp_dir()   # temporary per-surah files
+SETTINGS_FILE = settings_path.settings_file()  # SURAH_SETTINGS: tests / smoke runs
 
 
 DEFAULT_SETTINGS: dict[str, object] = {
