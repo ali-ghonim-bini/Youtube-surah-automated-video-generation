@@ -5,10 +5,9 @@
 !/scripts/**
 !/README.md
 !/.gitignore
-!/Todo.md
-!/YT_Todo.md
 !/YT_Schedule.json
 !/Surhs.txt
+!/Caption_Languages.json
 
 # Python/runtime artifacts
 __pycache__/
@@ -17,7 +16,12 @@ __pycache__/
 *.o
 *.log
 
-# Local/private credentials
-client_secret.json
+# Local/private credentials and runtime data
+auth_certification/
+client_secret*.json
 token.json
+token_meta.json
+.upload_session.json
+active_series.json
 Logs.json
+Logs/

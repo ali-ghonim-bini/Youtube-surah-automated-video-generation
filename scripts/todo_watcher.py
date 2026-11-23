@@ -10,16 +10,22 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from auto_queue import AutoQueue
+import series
+from keep_awake import run_awake
+from notify import notify
+import todo_file as todo_file_module
 from shared_log import append_event
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-SETTINGS_FILE = SCRIPT_DIR / "settings.json"
+SETTINGS_FILE = series.settings_file()  # SURAH_SETTINGS: tests / smoke runs
 AUTOMATION_SCRIPT = SCRIPT_DIR / "surah_automation.py"
+DEFAULT_TODO_FILE = Path("/path/to/Channel/سور/Todo.md")
+DEFAULT_LOG_FILE = Path("/path/to/Channel/سور/Logs.json")
+DEFAULT_SURAH_FILE = Path("/path/to/Channel/سور/Surhs.txt")
 POLL_SECONDS = 2.0
 SAVE_SETTLE_SECONDS = 0.5
-SECTION_ORDER = ("STARTED", "TODO", "WAITING", "DONE", "ERROR", "IGNORE")
-SYMBOLS = {"STARTED": "~", "TODO": " ", "WAITING": "?", "DONE": "x", "ERROR": "!", "IGNORE": "-"}
 
 
 def now() -> str:
@@ -28,15 +34,17 @@ def now() -> str:
 
 def load_settings() -> dict[str, object]:
     if not SETTINGS_FILE.exists():
-        raise RuntimeError(f"Missing settings file: {SETTINGS_FILE}")
-    return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        subprocess.run([sys.executable, str(AUTOMATION_SCRIPT)], cwd=str(Path.home()), check=False)
+    if SETTINGS_FILE.exists():
+        return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    return {"todo_file": str(DEFAULT_TODO_FILE), "log_file": str(DEFAULT_LOG_FILE)}
 
 
-def setting_path(settings: dict[str, object], key: str) -> Path:
+def setting_path(settings: dict[str, object], key: str, default: Path) -> Path:
     value = settings.get(key)
     if isinstance(value, str) and value:
         return Path(value)
-    raise RuntimeError(f"Missing or invalid setting: {key}")
+    return default
 
 
 def log_event(log_file: Path, event: str, level: str = "INFO", **fields: object) -> None:
@@ -44,90 +52,106 @@ def log_event(log_file: Path, event: str, level: str = "INFO", **fields: object)
     append_event(log_file, "trigger", event, level=level, run_id="watcher", status=status, **fields)
 
 
-def read_surahs(surah_file: Path) -> dict[int, str]:
-    surahs: dict[int, str] = {}
-    if not surah_file.exists():
-        return surahs
-    for line in surah_file.read_text(encoding="utf-8", errors="replace").splitlines():
-        match = re.match(r"^\s*(\d+)\s*-\s*(.+?)\s*$", line)
-        if match:
-            surahs[int(match.group(1))] = match.group(2)
-    return surahs
 
 
-def ensure_todo_file(todo_file: Path, surah_file: Path) -> None:
-    if todo_file.exists() and todo_file.stat().st_size > 0:
-        return
-    surahs = read_surahs(surah_file)
-    statuses = {number: "WAITING" for number in surahs}
-    lines = ["# TODO", ""]
-    for status in SECTION_ORDER:
-        lines.append(f"## {status}")
-        for number in sorted(surahs, reverse=True):
-            if statuses.get(number) == status:
-                lines.append(f"- [{SYMBOLS[status]}] {number} - {surahs[number]}")
-        lines.append("")
-    todo_file.parent.mkdir(parents=True, exist_ok=True)
-    todo_file.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+def ensure_todo_file(todo_file: Path, surah_file: Path, skip: set[int] = frozenset({18})) -> None:
+    todo_file_module.create_if_missing(todo_file, "# TODO", todo_file_module.read_surah_names(surah_file), skip)
 
 
 def todo_count(todo_file: Path) -> int:
-    if not todo_file.exists():
-        return 0
-    in_todo = False
-    count = 0
-    for line in todo_file.read_text(encoding="utf-8", errors="replace").splitlines():
-        section = re.match(r"^\s*##\s+(.+?)\s*$", line)
-        if section:
-            in_todo = section.group(1).strip().upper() == "TODO"
-            continue
-        if in_todo and re.match(r"^\s*-\s*\[\s*\]\s*\d+\s*-", line):
-            count += 1
-    return count
+    return todo_file_module.count(todo_file)
 
 
 def current_mtime(path: Path) -> int | None:
     try:
-        return path.stat().st_mtime_ns
+        return todo_file_module.storage_path(path).stat().st_mtime_ns   # Queue.md when the two queues share one file
     except FileNotFoundError:
         return None
 
 
-def run_automation(log_file: Path, reason: str, todo_items: int) -> None:
+RETRY_AFTER_ERROR_SECONDS = 10 * 60   # a failed run is retried on its own (no need to touch the queue file)
+
+
+def run_automation(log_file: Path, reason: str, todo_items: int) -> bool:
     log_event(log_file, "WATCHER_AUTOMATION_START", reason=reason, todo=todo_items)
-    result = subprocess.run([sys.executable, str(AUTOMATION_SCRIPT)], cwd=str(Path.home()), text=True, capture_output=True)
+    result = run_awake([sys.executable, str(AUTOMATION_SCRIPT)], "Rendering surah video", cwd=str(Path.home()))
     if result.returncode == 0:
         log_event(log_file, "WATCHER_AUTOMATION_DONE", todo=todo_items)
+        return True
+    if result.returncode == 3:   # network problem; the surah is still in TODO
+        log_event(log_file, "WATCHER_AUTOMATION_DEFERRED", level="WARNING", retry_in_seconds=RETRY_AFTER_ERROR_SECONDS)
+        return False
     else:
         log_event(log_file, "WATCHER_AUTOMATION_ERROR", level="ERROR", returncode=result.returncode, stderr=result.stderr[-4000:])
+        last_line = (result.stderr.strip().splitlines() or ["see Logs.json"])[-1]
+        notify("Video pipeline stopped", f"Exit code {result.returncode}: {last_line[:300]}", level="error", key=f"video-run-error-{last_line[:80]}")
+        return False
+
+
+def make_auto_queue(settings: dict[str, object], todo_file: Path, log_file: Path) -> AutoQueue | None:
+    config = settings.get("auto_queue") if isinstance(settings.get("auto_queue"), dict) else {}
+    if not config.get("enabled", False):
+        return None
+    youtube = settings.get("youtube") if isinstance(settings.get("youtube"), dict) else {}
+    yt_todo = Path(str(youtube.get("todo_file") or todo_file.with_name("YT_Todo.md")))
+    surah_dir = Path(str(settings.get("surah_dir") or todo_file.parent))
+    exported_dir = Path(str(settings.get("exported_dir") or surah_dir / "Exported_Vids"))
+    live_dir = Path(str(settings.get("live_exported_dir") or exported_dir / "Live"))
+    return AutoQueue(
+        todo_file, yt_todo, surah_dir / "Decisions.json",
+        log=lambda event, level="INFO", **fields: log_event(log_file, event, level=level, **fields),
+        exported_dir=exported_dir, live_dir=live_dir,
+        keep_in_todo=int(config.get("keep_in_todo", 1)),
+        ask_reminder_hours=float(config.get("ask_reminder_hours", 6)),
+    )
 
 
 def main() -> int:
     settings = load_settings()
-    todo_file = setting_path(settings, "todo_file")
-    surah_file = setting_path(settings, "surah_file")
-    log_file = setting_path(settings, "log_file")
-    ensure_todo_file(todo_file, surah_file)
+    todo_file = setting_path(settings, "todo_file", DEFAULT_TODO_FILE)
+    surah_file = setting_path(settings, "surah_file", DEFAULT_SURAH_FILE)
+    log_file = setting_path(settings, "log_file", DEFAULT_LOG_FILE)
+    ensure_todo_file(todo_file, surah_file, {int(n) for n in settings.get("skip_surah_numbers", [18])})
     last_mtime = current_mtime(todo_file)
     log_event(log_file, "WATCHER_START", todo_file=str(todo_file), poll_seconds=POLL_SECONDS)
 
+    queue = make_auto_queue(settings, todo_file, log_file)
+
+    retry_at: float | None = None   # set after a failed run; cleared by a successful one
+
+    def attempt(reason: str, items: int) -> None:
+        nonlocal retry_at, last_mtime
+        ok = run_automation(log_file, reason, items)
+        retry_at = None if ok else time.time() + RETRY_AFTER_ERROR_SECONDS
+        last_mtime = current_mtime(todo_file)
+
     initial_todo = todo_count(todo_file)
     if initial_todo:
-        run_automation(log_file, "initial_todo", initial_todo)
-        last_mtime = current_mtime(todo_file)
+        attempt("initial_todo", initial_todo)
 
     while True:
         time.sleep(POLL_SECONDS)
         new_mtime = current_mtime(todo_file)
+        if retry_at is not None and time.time() >= retry_at and new_mtime == last_mtime:
+            items = todo_count(todo_file)
+            if items:
+                attempt("retry_after_error", items)
+            else:
+                retry_at = None
+            continue
         if new_mtime == last_mtime:
+            if queue is not None:
+                try:
+                    queue.tick()  # queues the next surah when idle; the file change is picked up next loop
+                except Exception as exc:
+                    log_event(log_file, "AUTO_QUEUE_ERROR", level="ERROR", message=str(exc))
             continue
         time.sleep(SAVE_SETTLE_SECONDS)
         last_mtime = current_mtime(todo_file)
         items = todo_count(todo_file)
         log_event(log_file, "WATCHER_TODO_CHANGED", todo=items)
         if items:
-            run_automation(log_file, "todo_changed", items)
-            last_mtime = current_mtime(todo_file)
+            attempt("todo_changed", items)
 
 
 if __name__ == "__main__":

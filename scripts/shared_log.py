@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import fcntl
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
 
 SECTIONS = ("trigger", "video_generation", "image_generation", "youtube_upload")
+# Logs.json is a summary (rewritten on every event), so it stays small: the newest events per section,
+# long texts shortened. The complete history is appended to Logs/events-YYYY-MM.jsonl (one JSON per line).
+SUMMARY_EVENTS = 200
+SUMMARY_TEXT_LIMIT = 600
+HISTORY_KEEP_MONTHS = 12
 DONE_STATUSES = {"DONE"}
 ACTIVE_STATUSES = {"RUNNING", "UPLOADING", "WATCHING"}
 
@@ -138,26 +145,71 @@ def ordered_log(data: dict[str, object]) -> dict[str, object]:
     return ordered
 
 
+def shorten(value: object) -> object:
+    if isinstance(value, str) and len(value) > SUMMARY_TEXT_LIMIT:
+        return value[:SUMMARY_TEXT_LIMIT] + f"... (+{len(value) - SUMMARY_TEXT_LIMIT} chars, full text in Logs/events-*.jsonl)"
+    if isinstance(value, list):
+        return [shorten(item) for item in value[:50]]
+    if isinstance(value, dict):
+        return {key: shorten(item) for key, item in value.items()}
+    return value
+
+
+def append_history(log_file: Path, section: str, record: dict[str, object]) -> None:
+    """Complete, append-only history, one file per month. Never raises."""
+    try:
+        folder = log_file.with_name("Logs")
+        folder.mkdir(exist_ok=True)
+        month = str(record["ts"])[:7]
+        path = folder / f"events-{month}.jsonl"
+        is_new = not path.exists()
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"section": section, **record}, ensure_ascii=False) + "\n")
+        if is_new:
+            for old in sorted(folder.glob("events-*.jsonl"))[:-HISTORY_KEEP_MONTHS]:
+                old.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def write_atomic(path: Path, text: str) -> None:
+    tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+
+
 def append_event(log_file: Path, section: str, event: str, level: str = "INFO", run_id: str = "", status: str | None = None, **fields: object) -> None:
     if section not in SECTIONS:
         raise RuntimeError(f"Unknown log section: {section}")
     timestamp = now()
     log_file.parent.mkdir(parents=True, exist_ok=True)
-    data = read_log(log_file)
-    data["timestamp"] = timestamp
-    section_data = data[section]
-    assert isinstance(section_data, dict)
-    if status is not None:
-        section_data["status"] = status
-    section_data.setdefault("started_at", timestamp)
-    section_data["timestamp"] = timestamp
-    record = {"ts": timestamp, "event": event, "level": level, "run_id": run_id or section}
-    record.update({key: json_safe(value) for key, value in fields.items()})
-    update_section_summary(section_data, record, status, level)
-    events = section_data.setdefault("events", [])
-    if not isinstance(events, list):
-        events = []
-    events.insert(0, record)
-    section_data["events"] = events[:500]
-    update_root_status(data)
-    log_file.write_text(json.dumps(ordered_log(data), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    lock_path = log_file.with_name(log_file.name + ".lock")
+    with open(lock_path, "a+", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            data = read_log(log_file)
+            data["timestamp"] = timestamp
+            section_data = data[section]
+            assert isinstance(section_data, dict)
+            if status is not None:
+                section_data["status"] = status
+            section_data.setdefault("started_at", timestamp)
+            section_data["timestamp"] = timestamp
+            record = {"ts": timestamp, "event": event, "level": level, "run_id": run_id or section}
+            record.update({key: json_safe(value) for key, value in fields.items()})
+            append_history(log_file, section, record)
+            record = shorten(record)
+            update_section_summary(section_data, record, status, level)
+            events = section_data.setdefault("events", [])
+            if not isinstance(events, list):
+                events = []
+            events.insert(0, record)
+            section_data["events"] = events[:SUMMARY_EVENTS]
+            update_root_status(data)
+            write_atomic(log_file, json.dumps(ordered_log(data), ensure_ascii=False, indent=2) + "\n")
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)

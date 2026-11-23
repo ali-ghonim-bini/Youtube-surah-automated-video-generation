@@ -21,6 +21,7 @@ typedef struct {
     double blue;
     char *font;
     char *text;
+    int ltr; /* optional 11th field "ltr": left-to-right paragraph (English); default right-to-left */
 } Cue;
 
 static void fail(const char *message) {
@@ -48,17 +49,22 @@ static int read_cues(const char *path, Cue **out_cues) {
             *newline = '\0';
         }
 
-        char *fields[10] = {0};
+        char *fields[11] = {0};
         char *cursor = line;
-        for (int i = 0; i < 10; i++) {
+        int field_count = 0;
+        for (int i = 0; i < 11 && cursor; i++) {
             fields[i] = cursor;
+            field_count++;
             char *tab = strchr(cursor, '\t');
             if (tab) {
                 *tab = '\0';
                 cursor = tab + 1;
-            } else if (i < 9) {
-                fail("Invalid cue spec line");
+            } else {
+                cursor = NULL;
             }
+        }
+        if (field_count < 10) {
+            fail("Invalid cue spec line");
         }
 
         gsize font_len = 0;
@@ -99,6 +105,7 @@ static int read_cues(const char *path, Cue **out_cues) {
         cues[count].blue = (rgb & 0xff) / 255.0;
         cues[count].font = font;
         cues[count].text = text;
+        cues[count].ltr = field_count >= 11 && strcmp(fields[10], "ltr") == 0;
         count++;
     }
     fclose(file);
@@ -127,8 +134,8 @@ static double cue_alpha(const Cue *cue, int frame) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 6) {
-        fprintf(stderr, "Usage: %s SPEC WIDTH HEIGHT FRAMES LINE_SPACING\n", argv[0]);
+    if (argc < 6 || argc > 8) {
+        fprintf(stderr, "Usage: %s SPEC WIDTH HEIGHT FRAMES LINE_SPACING [START_FRAME [BACKGROUND_PNG]]\n", argv[0]);
         return 1;
     }
 
@@ -137,6 +144,22 @@ int main(int argc, char **argv) {
     int height = atoi(argv[3]);
     int frames = atoi(argv[4]);
     double line_spacing = atof(argv[5]);
+    /* Optional: draw only frames START_FRAME .. START_FRAME+FRAMES-1 (one piece of the video), and paint the
+       text onto BACKGROUND_PNG (already WIDTH x HEIGHT) so the frames are finished pictures, not an overlay. */
+    int first_frame = argc > 6 ? atoi(argv[6]) : 0;
+    cairo_surface_t *background = NULL;
+    if (argc > 7) {
+        background = cairo_image_surface_create_from_png(argv[7]);
+        if (cairo_surface_status(background) != CAIRO_STATUS_SUCCESS) {
+            fail("Cannot read the background PNG");
+        }
+        if (cairo_image_surface_get_width(background) != width || cairo_image_surface_get_height(background) != height) {
+            fail("Background PNG has the wrong size");
+        }
+    }
+    if (first_frame < 0) {
+        fail("Invalid start frame");
+    }
 
     if (width <= 0 || height <= 0 || frames <= 0) {
         fail("Invalid dimensions or frame count");
@@ -161,20 +184,47 @@ int main(int argc, char **argv) {
         fail("Out of memory");
     }
 
-    for (int frame = 0; frame < frames; frame++) {
+    double *shown = calloc((size_t)(cue_count > 0 ? cue_count : 1), sizeof(double)); /* alpha of each cue in the last drawn frame */
+    if (!shown) {
+        fail("Out of memory");
+    }
+    int have_picture = 0;
+
+    for (int index = 0; index < frames; index++) {
+        int frame = first_frame + index;
+        /* Most frames are the same still screen as the one before: draw only when something changed. */
+        int changed = !have_picture;
+        for (int i = 0; i < cue_count; i++) {
+            double alpha = cue_alpha(&cues[i], frame);
+            if (alpha != shown[i]) {
+                changed = 1;
+                shown[i] = alpha;
+            }
+        }
+        if (!changed) {
+            goto write_frame;
+        }
+        have_picture = 1;
         cairo_save(cr);
-        cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
+        if (background) {
+            cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+            cairo_set_source_surface(cr, background, 0, 0);
+        } else {
+            cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
+        }
         cairo_paint(cr);
         cairo_restore(cr);
 
         for (int i = 0; i < cue_count; i++) {
-            double alpha = cue_alpha(&cues[i], frame);
+            double alpha = shown[i];
             if (alpha <= 0.0) {
                 continue;
             }
             PangoFontDescription *font_desc = pango_font_description_from_string(cues[i].font);
             pango_layout_set_font_description(layout, font_desc);
             pango_font_description_free(font_desc);
+            pango_context_set_base_dir(pango_layout_get_context(layout), cues[i].ltr ? PANGO_DIRECTION_LTR : PANGO_DIRECTION_RTL);
+            pango_layout_context_changed(layout);
             pango_layout_set_width(layout, cues[i].box_width * PANGO_SCALE);
             pango_layout_set_text(layout, cues[i].text, -1);
             int text_width = 0;
@@ -188,6 +238,7 @@ int main(int argc, char **argv) {
         }
 
         cairo_surface_flush(surface);
+write_frame:
         if (stride == width * 4) {
             fwrite(data, 1, (size_t)height * stride, stdout);
         } else {
@@ -202,6 +253,10 @@ int main(int argc, char **argv) {
     }
 
     free(row_buffer);
+    free(shown);
+    if (background) {
+        cairo_surface_destroy(background);
+    }
     g_object_unref(layout);
     cairo_destroy(cr);
     cairo_surface_destroy(surface);
