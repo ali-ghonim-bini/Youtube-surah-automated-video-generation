@@ -338,6 +338,8 @@ QUALITY_EXTENT_TOLERANCE_PX = setting_int("video.quality_check.text_extent_toler
 # The thinnest marks above the letters are too faint to count at check resolution, so the drawn top can read
 # up to this much lower than planned (seen: 0-27 px). A missing/extra line is ~90 px, so it is still caught.
 QUALITY_TOP_FAINT_PX = setting_int("video.quality_check.text_top_faint_px", 40)
+# The same on the other side: a last line with few letters below the line ends higher than its space.
+QUALITY_BOTTOM_SHORT_PX = setting_int("video.quality_check.text_bottom_short_px", QUALITY_EXTENT_TOLERANCE_PX)
 QUALITY_SYNC_MAX_OFFSET = setting_float("video.quality_check.sync_max_offset_seconds", 0.5)
 QUALITY_SYNC_MAX_MEDIAN = setting_float("video.quality_check.sync_max_median_seconds", 0.3)
 QUALITY_SYNC_MAX_BAD_SHARE = setting_float("video.quality_check.sync_max_bad_share", 0.1)

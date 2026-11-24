@@ -176,6 +176,15 @@ class QualityCheckError(RuntimeError):
     pass
 
 
+def extent_matches(top_off: int, bottom_off: int) -> bool:
+    """Does the drawn text sit in its planned space? Offsets are drawn minus planned, in pixels (down is positive).
+    Text may be a little SHORTER than its space, starting lower (faint marks, no tall letters) or ending higher
+    (nothing below the line): harmless, allowed up to the two allowances. Text reaching OUTSIDE its space, above
+    the top or below the bottom, is held to the strict tolerance: that is what a cut or overlap looks like."""
+    return (-QUALITY_EXTENT_TOLERANCE_PX <= top_off <= QUALITY_TOP_FAINT_PX
+            and -QUALITY_BOTTOM_SHORT_PX <= bottom_off <= QUALITY_EXTENT_TOLERANCE_PX)
+
+
 def enough_measured(measured: int, total: int) -> bool:
     """Could the start of enough ayat be measured to trust the sync check? A start can only be measured when there
     is a pause before it, so a recitation that runs ayat together leaves few to measure. The joined audio is already
@@ -248,7 +257,7 @@ def quality_check(number: int, video: Path, surah_layout: "text_layout.SurahLayo
             problems.append(f"ayah {key}: text missing from its planned area at {at:.1f}s")
         elif seen["intrusions_px"]:
             problems.append(f"ayah {key}: text outside its area at {at:.1f}s ({seen['intrusions_px']})")
-        elif not (-QUALITY_EXTENT_TOLERANCE_PX <= top_off <= QUALITY_TOP_FAINT_PX) or abs(bottom_off) > QUALITY_EXTENT_TOLERANCE_PX:
+        elif not extent_matches(top_off, bottom_off):
             problems.append(f"ayah {key}: drawn text does not match the plan at {at:.1f}s (top {top_off:+d}px, bottom {bottom_off:+d}px)")
 
     # 3. Audio: present, as long as the video, and each ayah appears when its recitation starts.
@@ -284,8 +293,7 @@ def quality_check(number: int, video: Path, surah_layout: "text_layout.SurahLayo
 
     report = {"ayat": ayah_count, "screens": len(ordered), "sync": sync, "problems": problems[:20],
               "frames_checked": len(frames), "frames": [f for f in frames if not f["found"] or "intrusions_px" in f
-                                                         or not (-QUALITY_EXTENT_TOLERANCE_PX <= (f["top_off"] or 0) <= QUALITY_TOP_FAINT_PX)
-                                                         or abs(f["bottom_off"] or 0) > QUALITY_EXTENT_TOLERANCE_PX][:20]}
+                                                         or not extent_matches(f["top_off"] or 0, f["bottom_off"] or 0)][:20]}
     if problems:
         log("QUALITY_CHECK_FAILED", level="ERROR", surah=number, **report)
         more = f" (+{len(problems) - 3} more)" if len(problems) > 3 else ""
