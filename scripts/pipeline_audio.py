@@ -46,6 +46,33 @@ def detect_voice_start(path: Path, fallback_start: float, duration: float) -> fl
     return fallback_start
 
 
+SITE_TIMING_SHORT_BY_SECONDS = 1.0   # how much longer the heard voice must be before the site's timing is distrusted
+
+
+def detect_voice_end(path: Path, duration: float) -> float:
+    """Where the voice ends in a clip: the start of the silence that runs to the end of the clip (else its length)."""
+    result = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-af", f"silencedetect=noise={VOICE_START_THRESHOLD_DB}dB:d=0.15",
+                             "-f", "null", "-"], capture_output=True, text=True)
+    if result.returncode != 0:
+        return duration
+    starts = [float(v) for v in re.findall(r"silence_start:\s*([0-9.]+)", result.stderr)]
+    ends = [float(v) for v in re.findall(r"silence_end:\s*([0-9.]+)", result.stderr)]
+    if not starts:
+        return duration
+    last = starts[-1]
+    runs_to_the_end = len(ends) < len(starts) or ends[-1] >= duration - 0.05
+    return min(duration, last) if runs_to_the_end and last > 0 else duration
+
+
+def screen_end(voice_start: float, site_end: float, voice_end: float) -> float:
+    """When the ayah leaves the screen, measured inside its clip. Normally the site's timing. When the site says the
+    ayah is over well before the voice actually stops (e.g. stretched opening letters such as حم: site 0.8 s, voice
+    about 4 s), the voice is trusted instead, so the ayah stays on screen while it is being recited."""
+    if voice_end - site_end > SITE_TIMING_SHORT_BY_SECONDS and voice_end > voice_start:
+        return voice_end
+    return site_end
+
+
 def audio_segments_url(number: int, from_ayah: int = 1) -> str:
     url = AUDIO_SEGMENTS_URL_TEMPLATE.format(recitation_id=AUDIO_RECITATION_ID, surah_number=number, from_ayah=from_ayah)
     if "{from_ayah}" in AUDIO_SEGMENTS_URL_TEMPLATE:
@@ -179,6 +206,11 @@ def prepare_qul_audio(number: int, ayah_count: int) -> tuple[Path, tuple[float, 
         timing_end = min(duration, detected_start + window_length)
         if timing_end <= detected_start:
             detected_start, timing_end = window_start, window_end
+        site_end = timing_end
+        timing_end = screen_end(detected_start, site_end, detect_voice_end(ayah_file, duration))
+        if timing_end != site_end:
+            log("AYAH_TIMING_FROM_VOICE", level="WARNING", surah=number, clip_index=index, file=ayah_file,
+                site_end=round(site_end, 3), voice_end=round(timing_end, 3), message="the site's timing ends well before the voice; the voice is used")
         log(
             "AYAH_TIMING_OK",
             surah=number,
