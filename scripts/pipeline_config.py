@@ -277,6 +277,9 @@ FADE_BASMALAH_SECONDS = setting_float("video.basmalah.fade_in_seconds", 0.96)
 FADE_AYAH_SECONDS = setting_float("video.ayah.fade_in_seconds", 0.4)
 FADE_CREDIT_SECONDS = setting_float("video.intro.fade_in_seconds", 0.32)
 FADE_OUT_SECONDS = setting_float("video.ayah.fade_out_seconds", 0.4)
+# A very short ayah (opening letters such as طه) stays on screen at least this long, through the pause after it,
+# but never into the next ayah. Its start is not moved, so the sync is unchanged.
+AYAH_MIN_SCREEN_SECONDS = setting_float("video.ayah.min_screen_seconds", 2.0)
 INTRO_CREDIT_SECONDS = setting_float("video.intro.duration_seconds", 3.56)
 OUTRO_CREDIT_SECONDS = setting_float("video.outro.duration_seconds", 4.6)
 PANGO_SYNC_OFFSET_SECONDS = setting_float("video.pango_sync_offset_seconds", 0.0)

@@ -73,6 +73,20 @@ def screen_end(voice_start: float, site_end: float, voice_end: float) -> float:
     return site_end
 
 
+def extend_short_screens(timings: list[tuple[float, float]], minimum: float, gap: float = 0.05) -> list[tuple[float, float]]:
+    """Keep each very short ayah on screen for at least `minimum` seconds by letting it run into the pause after it,
+    stopping `gap` before the next ayah starts. Starts never move, the last ayah is left alone (the closing credit
+    follows it), and an ayah that is already long enough is unchanged."""
+    out = list(timings)
+    for index in range(len(out) - 1):
+        start, end = out[index]
+        if end - start >= minimum:
+            continue
+        next_start = out[index + 1][0]
+        out[index] = (start, max(end, min(start + minimum, next_start - gap)))
+    return out
+
+
 def audio_segments_url(number: int, from_ayah: int = 1) -> str:
     url = AUDIO_SEGMENTS_URL_TEMPLATE.format(recitation_id=AUDIO_RECITATION_ID, surah_number=number, from_ayah=from_ayah)
     if "{from_ayah}" in AUDIO_SEGMENTS_URL_TEMPLATE:
@@ -228,6 +242,12 @@ def prepare_qul_audio(number: int, ayah_count: int) -> tuple[Path, tuple[float, 
         else:
             ayah_timings.append(timing)
         cursor += duration
+    longer = extend_short_screens(ayah_timings, AYAH_MIN_SCREEN_SECONDS)
+    for index, (before, after) in enumerate(zip(ayah_timings, longer)):
+        if after != before:
+            log("AYAH_SCREEN_EXTENDED", surah=number, ayah=index + 1, start=round(before[0], 3), end_before=round(before[1], 3), end_after=round(after[1], 3),
+                message="very short ayah kept on screen through the pause after it")
+    ayah_timings = longer
     log("AUDIO_COMBINE_OK", surah=number, output=combined, duration=ffprobe_duration(combined), basmalah=basmalah_timing, ayat=len(ayah_timings))
     return combined, basmalah_timing, ayah_timings
 
